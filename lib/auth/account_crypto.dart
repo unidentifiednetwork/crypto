@@ -4,6 +4,7 @@ import 'package:sodium_libs/sodium_libs_sumo.dart';
 
 import '../common/key_derivation.dart';
 import '../common/key_utils.dart';
+import '../common/signed_payload.dart';
 import 'login_crypto.dart';
 
 /// Crypto operations for account deletion and password change.
@@ -26,6 +27,19 @@ class AccountCrypto {
     );
   }
 
+  static String signDeleteAccountRequest({
+    required SodiumSumo sodium,
+    required Uint8List seed,
+    required String challenge,
+  }) {
+    return LoginCrypto.signDomainSeparated(
+      sodium: sodium,
+      seed: seed,
+      domain: 'unet-delete-account-request',
+      payload: SignedPayload.build({'challenge': challenge}),
+    );
+  }
+
   /// Sign a password-change challenge with the **old** seed.
   ///
   /// Domain-separation: `unet-change-password-challenge:{challenge}`
@@ -42,6 +56,27 @@ class AccountCrypto {
     );
   }
 
+  static String signChangePasswordRequest({
+    required SodiumSumo sodium,
+    required Uint8List oldSeed,
+    required String challenge,
+    required String newPublicKey,
+    required String newKeySalt,
+    required int newKeyIterations,
+  }) {
+    return LoginCrypto.signDomainSeparated(
+      sodium: sodium,
+      seed: oldSeed,
+      domain: 'unet-change-password-request',
+      payload: SignedPayload.build({
+        'challenge': challenge,
+        'newKeyIterations': newKeyIterations,
+        'newKeySalt': newKeySalt,
+        'newPublicKey': newPublicKey,
+      }),
+    );
+  }
+
   /// Full password-change crypto bundle.
   ///
   /// Returns the signature (from old seed) plus the new public key in PEM
@@ -52,12 +87,6 @@ class AccountCrypto {
     required String newPassword,
     required String challenge,
   }) {
-    final signature = signChangePasswordChallenge(
-      sodium: sodium,
-      oldSeed: oldSeed,
-      challenge: challenge,
-    );
-
     final newSalt = KeyUtils.generateSaltHex();
     final newSeed = KeyDerivation.deriveKey(
       password: newPassword,
@@ -65,6 +94,14 @@ class AccountCrypto {
     );
     final newPk = LoginCrypto.publicKeyFromSeed(sodium: sodium, seed: newSeed);
     final newPem = KeyUtils.publicKeyToSpkiPem(newPk);
+    final signature = signChangePasswordRequest(
+      sodium: sodium,
+      oldSeed: oldSeed,
+      challenge: challenge,
+      newPublicKey: newPem,
+      newKeySalt: newSalt,
+      newKeyIterations: KeyDerivation.argon2TimeCost,
+    );
 
     final newSeedSecure = SecureKey.fromList(sodium, newSeed);
     newSeed.fillRange(0, newSeed.length, 0);

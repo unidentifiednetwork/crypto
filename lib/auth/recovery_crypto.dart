@@ -7,6 +7,7 @@ import 'package:sodium_libs/sodium_libs_sumo.dart';
 
 import '../common/key_derivation.dart';
 import '../common/key_utils.dart';
+import '../common/signed_payload.dart';
 import 'login_crypto.dart';
 
 /// Crypto operations for account recovery.
@@ -88,12 +89,79 @@ class RecoveryCrypto {
     );
   }
 
+  static String signRecoverySetupRequest({
+    required SodiumSumo sodium,
+    required Uint8List authSeed,
+    required String recoveryPublicKey,
+    required String recoveryData,
+    required String recoveryKeySalt,
+    required int recoveryKeyIterations,
+  }) {
+    return LoginCrypto.signDomainSeparated(
+      sodium: sodium,
+      seed: authSeed,
+      domain: 'unet-recovery-setup',
+      payload: SignedPayload.build({
+        'recoveryData': recoveryData,
+        'recoveryKeyIterations': recoveryKeyIterations,
+        'recoveryKeySalt': recoveryKeySalt,
+        'recoveryPublicKey': recoveryPublicKey,
+      }),
+    );
+  }
+
+  static String buildRecoveryCompletePayload({
+    required String username,
+    required String type,
+    required String challenge,
+    required String newPublicKey,
+    required String newKeySalt,
+    required int newKeyIterations,
+    String? newRecoveryPublicKey,
+    String? newRecoveryData,
+    String? newRecoveryKeySalt,
+    int? newRecoveryKeyIterations,
+    String? newRecoveryPinBlob,
+    String? newRecoveryPinSalt,
+    String? newRecoveryPinPublicKey,
+  }) {
+    return SignedPayload.build({
+      'challenge': challenge,
+      'newKeyIterations': newKeyIterations,
+      'newKeySalt': newKeySalt,
+      'newPublicKey': newPublicKey,
+      'newRecoveryData': newRecoveryData,
+      'newRecoveryKeyIterations': newRecoveryKeyIterations,
+      'newRecoveryKeySalt': newRecoveryKeySalt,
+      'newRecoveryPinBlob': newRecoveryPinBlob,
+      'newRecoveryPinPublicKey': newRecoveryPinPublicKey,
+      'newRecoveryPinSalt': newRecoveryPinSalt,
+      'newRecoveryPublicKey': newRecoveryPublicKey,
+      'type': type,
+      'username': username.trim().toLowerCase(),
+    });
+  }
+
+  static String signRecoveryCompleteRequest({
+    required SodiumSumo sodium,
+    required Uint8List recoverySeed,
+    required String payload,
+  }) {
+    return LoginCrypto.signDomainSeparated(
+      sodium: sodium,
+      seed: recoverySeed,
+      domain: 'unet-recovery-complete',
+      payload: payload,
+    );
+  }
+
   /// Prepare the full recovery-complete payload.
   ///
   /// Returns: recovery signature, new auth public key PEM, new recovery
   /// public key PEM, and the re-encrypted seed.
   static RecoveryCompleteBundle prepareRecoveryComplete({
     required SodiumSumo sodium,
+    required String username,
     required Uint8List recoveryKeyBytes,
     required String newPassword,
     required String challenge,
@@ -104,11 +172,6 @@ class RecoveryCrypto {
     final recoverySeed = KeyDerivation.deriveKey(
       password: recoveryHex,
       saltHex: keySalt,
-    );
-    final recoverySignature = signRecoveryChallenge(
-      sodium: sodium,
-      recoverySeed: recoverySeed,
-      challenge: challenge,
     );
 
     // 2. New auth keypair from new password
@@ -150,6 +213,24 @@ class RecoveryCrypto {
     final combined = Uint8List(nonce.length + encrypted.length)
       ..setRange(0, nonce.length, nonce)
       ..setRange(nonce.length, nonce.length + encrypted.length, encrypted);
+    final newRecoveryData = base64.encode(combined);
+    final recoveryPayload = buildRecoveryCompletePayload(
+      username: username,
+      type: 'key',
+      challenge: challenge,
+      newPublicKey: newAuthPem,
+      newKeySalt: newSalt,
+      newKeyIterations: KeyDerivation.argon2TimeCost,
+      newRecoveryPublicKey: newRecoveryPem,
+      newRecoveryData: newRecoveryData,
+      newRecoveryKeySalt: newSalt,
+    );
+    final recoverySignature = signRecoveryCompleteRequest(
+      sodium: sodium,
+      recoverySeed: recoverySeed,
+      payload: recoveryPayload,
+    );
+    recoverySeed.fillRange(0, recoverySeed.length, 0);
 
     final newSeedSecure = SecureKey.fromList(sodium, newSeed);
     newSeed.fillRange(0, newSeed.length, 0);
@@ -159,7 +240,7 @@ class RecoveryCrypto {
       newPublicKeyPem: newAuthPem,
       newKeySalt: newSalt,
       newRecoveryPublicKeyPem: newRecoveryPem,
-      newRecoveryDataBase64: base64.encode(combined),
+      newRecoveryDataBase64: newRecoveryData,
       newSeed: newSeedSecure,
     );
   }

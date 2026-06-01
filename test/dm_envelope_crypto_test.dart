@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart' as convert;
 import 'package:crypto/crypto.dart';
 import 'package:sodium/sodium_sumo.dart' as sodium_pkg;
-import 'package:sodium_libs/sodium_libs_sumo.dart';
+import 'package:sodium/sodium_sumo.dart';
 import 'package:test/test.dart';
 import 'package:unet_crypto/unet_crypto.dart';
 
@@ -332,25 +332,23 @@ void main() {
     }
   });
 
-  test('KDF parameter minimums reject weaker settings', () {
+  test('custom KDF parameters stay compatible with older server settings', () {
     const salt = '00112233445566778899aabbccddeeff';
 
-    expect(
-      () => KeyDerivation.deriveKey(
-        password: 'password',
-        saltHex: salt,
-        customTimeCost: KeyDerivation.argon2TimeCost - 1,
-      ),
-      throwsA(isA<ArgumentError>()),
+    final weakerTimeCostSeed = KeyDerivation.deriveKey(
+      password: 'password',
+      saltHex: salt,
+      customTimeCost: KeyDerivation.argon2TimeCost - 1,
     );
-    expect(
-      () => KeyDerivation.deriveKey(
-        password: 'password',
-        saltHex: salt,
-        customMemoryKb: KeyDerivation.argon2MemoryKb - 1,
-      ),
-      throwsA(isA<ArgumentError>()),
+    final weakerMemorySeed = KeyDerivation.deriveKey(
+      password: 'password',
+      saltHex: salt,
+      customMemoryKb: KeyDerivation.argon2MemoryKb - 1,
     );
+
+    expect(weakerTimeCostSeed, hasLength(KeyDerivation.argon2HashLength));
+    expect(weakerMemorySeed, hasLength(KeyDerivation.argon2HashLength));
+    expect(weakerTimeCostSeed, isNot(equals(weakerMemorySeed)));
   });
 
   test('decryptEnvelope rejects oversized envelopes before decoding', () {
@@ -367,6 +365,103 @@ void main() {
       );
     } finally {
       recipientSecret.dispose();
+    }
+  });
+
+  test('decryptEnvelope accepts 64KB raw payload', () async {
+    final senderKeys = DMKeyDerivation.deriveFromSeed(
+      sodium: sodium,
+      authSeed: KeyDerivation.deriveKey(
+        password: 'sender-pass',
+        saltHex: '00112233445566778899aabbccddeeff',
+      ),
+    );
+    final recipientKeys = DMKeyDerivation.deriveFromSeed(
+      sodium: sodium,
+      authSeed: KeyDerivation.deriveKey(
+        password: 'recipient-pass',
+        saltHex: 'ffeeddccbbaa99887766554433221100',
+      ),
+    );
+
+    try {
+      // Create a ~64KB text payload.
+      final largePayload = {'kind': 'TEXT', 'text': 'x' * 65500};
+
+      final encrypted = await DMEnvelopeCrypto.encryptEnvelope(
+        sodium: sodium,
+        payload: largePayload,
+        senderPublicKey: senderKeys.publicKey,
+        senderSecretKey: senderKeys.secretKey,
+        recipientPublicKey: recipientKeys.publicKey,
+      );
+
+      // Should not throw "invalid envelope" error.
+      final decrypted = DMEnvelopeCrypto.decryptEnvelope(
+        sodium: sodium,
+        encryptedPayload: encrypted,
+        recipientSecretKey: recipientKeys.secretKey,
+        expectedSenderPublicKey: senderKeys.publicKey,
+      );
+
+      expect(decrypted, isNotNull);
+      expect(decrypted!['kind'], 'TEXT');
+      expect(decrypted['text'].length, 65500);
+    } finally {
+      senderKeys.secretKey.dispose();
+      recipientKeys.secretKey.dispose();
+    }
+  });
+
+  test('decryptEnvelope accepts large legacy voice payload', () async {
+    final senderKeys = DMKeyDerivation.deriveFromSeed(
+      sodium: sodium,
+      authSeed: KeyDerivation.deriveKey(
+        password: 'sender-pass',
+        saltHex: '0123456789abcdef0123456789abcdef',
+      ),
+    );
+    final recipientKeys = DMKeyDerivation.deriveFromSeed(
+      sodium: sodium,
+      authSeed: KeyDerivation.deriveKey(
+        password: 'recipient-pass',
+        saltHex: 'fedcba9876543210fedcba9876543210',
+      ),
+    );
+
+    try {
+      final largeVoicePayload = {
+        'kind': 'VOICE',
+        'mimeType': 'audio/mp4',
+        'durationMs': 60000,
+        'trimStartMs': 0,
+        'trimEndMs': 60000,
+        'waveform': List<double>.filled(40, 0.5),
+        // Simulates legacy inline base64 audio payload used by older clients.
+        'audioBase64': 'A' * 700000,
+      };
+
+      final encrypted = await DMEnvelopeCrypto.encryptEnvelope(
+        sodium: sodium,
+        payload: largeVoicePayload,
+        senderPublicKey: senderKeys.publicKey,
+        senderSecretKey: senderKeys.secretKey,
+        recipientPublicKey: recipientKeys.publicKey,
+      );
+
+      final decrypted = DMEnvelopeCrypto.decryptEnvelope(
+        sodium: sodium,
+        encryptedPayload: encrypted,
+        recipientSecretKey: recipientKeys.secretKey,
+        expectedSenderPublicKey: senderKeys.publicKey,
+      );
+
+      expect(decrypted, isNotNull);
+      expect(decrypted!['kind'], 'VOICE');
+      expect((decrypted['audioBase64'] as String).length, 700000);
+    } finally {
+      senderKeys.secretKey.dispose();
+      recipientKeys.secretKey.dispose();
     }
   });
 

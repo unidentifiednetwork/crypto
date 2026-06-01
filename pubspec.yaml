@@ -16,3 +16,4 @@ dependencies:
 
 dev_dependencies:
   test: ^1.26.3
+  sodium: ^3.4.6

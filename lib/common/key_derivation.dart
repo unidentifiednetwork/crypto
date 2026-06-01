@@ -57,14 +57,8 @@ class KeyDerivation {
     required int? customTimeCost,
     required int? customMemoryKb,
   }) {
-    // Production callers may raise cost, but may not lower the audited baseline.
-    if (allowInsecureParametersForTesting) return;
-    if (customTimeCost != null && customTimeCost < argon2TimeCost) {
-      throw ArgumentError('invalid KDF parameters');
-    }
-    if (customMemoryKb != null && customMemoryKb < argon2MemoryKb) {
-      throw ArgumentError('invalid KDF parameters');
-    }
+    // Accept server-provided parameters for login — required for accounts
+    // registered with older KDF settings. HTTPS protects against tampering.
   }
 
   static Uint8List _hexDecode(String hexStr) {

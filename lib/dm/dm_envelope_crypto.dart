@@ -13,7 +13,11 @@ class CryptoException implements Exception {
 }
 
 class DMEnvelopeCrypto {
-  static const int maxEnvelopeSizeBytes = 65536;
+  // Envelope is JSON->base64 with nested base64 fields, so large legacy VOICE
+  // payloads (inline base64 audio) can expand to ~2.37x of raw audio bytes.
+  // Keep a hard cap to avoid attacker-controlled memory blowups while allowing
+  // up to ~700KB inline voice payloads used by older clients.
+  static const int maxEnvelopeSizeBytes = 2000000;
   static const int x25519PublicKeyBytes = 32;
   static const String envelopeAlgorithm = 'x25519-xsalsa20-poly1305';
 

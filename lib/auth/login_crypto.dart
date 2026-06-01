@@ -92,7 +92,9 @@ class LoginCrypto {
 
   static void _validateChallenge(String challenge) {
     // Use one non-leaking error for all malformed challenges.
-    if (challenge.isEmpty || challenge.length < 16 || challenge.length > 512) {
+    if (challenge.isEmpty ||
+        challenge.length < 16 ||
+        challenge.length > 131072) {
       throw ArgumentError('invalid challenge');
     }
     final allowedPattern = RegExp(r'^[A-Za-z0-9+/=_-]+$');
