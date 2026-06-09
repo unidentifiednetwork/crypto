@@ -63,11 +63,13 @@ class RegistrationCrypto {
   }) {
     final salt = keySaltHex ?? KeyUtils.generateSaltHex();
     final seed = KeyDerivation.deriveKey(password: password, saltHex: salt);
-    return signRegistration(
+    final result = signRegistration(
       sodium: sodium,
       username: username,
       keySaltHex: salt,
       seed: seed,
     );
+    seed.fillRange(0, seed.length, 0);
+    return result;
   }
 }

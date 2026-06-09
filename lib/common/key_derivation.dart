@@ -57,8 +57,12 @@ class KeyDerivation {
     required int? customTimeCost,
     required int? customMemoryKb,
   }) {
-    // Accept server-provided parameters for login — required for accounts
-    // registered with older KDF settings. HTTPS protects against tampering.
+    if (customTimeCost != null && customTimeCost < 2) {
+      throw ArgumentError('timeCost too low: $customTimeCost');
+    }
+    if (customMemoryKb != null && customMemoryKb < 8192) {
+      throw ArgumentError('memoryCost too low: $customMemoryKb');
+    }
   }
 
   static Uint8List _hexDecode(String hexStr) {
